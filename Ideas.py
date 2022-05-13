@@ -1,4 +1,5 @@
-#Libraries
+#This file contains all the ideas for the project
+#Libraries imported
 from spacy.lang.en.stop_words import STOP_WORDS as en_stop
 from gensim.models import Phrases, LdaModel
 from gensim.corpora import Dictionary
@@ -10,23 +11,8 @@ import pandas as pd
 import nltk
 from nltk.stem import WordNetLemmatizer
 
-#Notes:
-# 1. Keep a look out for the 3 checkpoints. Those are areas that may need some looking into for improvement
-# 2. First checkpoint is meant for converting nltk useage  to spacy-->>only relevant to lemmatization, if there would be a performance advantage
-# 3. Second checkpoint is for looking into the log-likelihood mess-up that I slackd about, we can continue with it or change it to the logically correct way. May need more research. If needed, we can also try out the other idea in ideas.py i.e. LDA-->>HLDA
-# 4. Third checkpoint is for the visualization printing. The level 1 topic currently is being picked up as the first number that is non unique under the root topics (0) children. Maybe we can look into ways of identifying better ways to select topics e.g. any similarity measure, not sure if that would affect performance though
-#Folder Structure Notes:
-#1. test_hlda*.tmm<--Files are the individual HLDA models where the number(*) is the Topic Number
-#2. dict<-- is the dictionary that is used to convert the corpus to a bag of words for the LDA model
-#3. corp.json<-- is the corpus that is used for the LDA model
-#4. df-dom.csv<-- is the dataframe that is a product of the LDA model and is used for the splitting and further training using HLDA model
-#5. test-corpus*.cached.cps<-- is the corpus that is used for the HLDA model where the number(*) is the Topic Number
-#6. lda<-- folder is the folder that contains the LDA model and its associated files
-
-
-
-nlp = spacy.load("en_core_web_md")  # Loading the spacy model (medium sized)
-#update the stopwords list with some more words that seem to be common in the data
+nlp = spacy.load("en_core_web_md")  # needs to be run in the terminal
+#update the stopwords list with the spacy stopwords
 en_stop.add("said")
 en_stop.add("reuters")
 en_stop.add("london")
@@ -51,12 +37,11 @@ mdl3 = tp.HLDAModel.load(
 
 cluster_names = {  # name the clusters as seems reasonable based on the LDA model outputs and the HLDA model outputs
     0: "Science and Technology",
-    1: "Health/Science and Business",
-    2: "Business/Tech/BioTech",
+    1: "Business/Tech/BioTech",
+    2: "Health/Science/Drugs",
     3: "Entertainment/News"
 }
-# Sample Test articles
-#----------------------------------------------------------------------------------------------------------------------
+# Test articles
 # other_texts = {'txt':['The human genome is made up of about 3.1 billion DNA subunits, pairs of chemical bases known by the letters A, C, G and T. Genes are strings of these lettered pairs that contain instructions for making proteins, the building blocks of life. Humans have about 30,000 genes, organized in 23 groups called chromosomes that are found in the nucleus of every cell']}
 other_texts = {'txt': [
     'Oliveira missed championship weight by half a pound at the official weigh-ins, using up almost the entirety of the initial two-hour window before making his first attempt and then taking another hour before stepping to the scale again. Both times he came in at 155.5 pounds. His UFC 274 main event challenger Justin Gaethje showed up minutes after the weigh-ins began, hitting 155 on the dot. It was later announced that Oliveira would be stripped of his title and that only Gaethje would be eligible to leave Footprint Center in Phoenix with the belt around his waist.']}
@@ -68,55 +53,98 @@ other_texts = {'txt': [
 # # \ Meanwhile, the Federal Reserve on Wednesday raised its benchmark interest rate by half a percentage point as it responds to inflation pressures.\
 # # \ The stock market rallied after Fed chair Jerome Powell said a larger rate hike of 75 basis points isn’t being considered. But by Thursday, investors had erased the Fed rally’s gains.\
 # # \ The global cryptocurrency market cap was at $1.68 trillion on Sunday, according to data from CoinGecko.com, and cryptocurrency trading volume in the last day was at $119 billion.']}
-# ---------------------------------------------------------------------------------------------------------------------
+# --------------
 other_texts = pd.DataFrame(other_texts)  # Convert dictionary to dataframe
 
 #Checkpoint! Try to update code for spacy instead of nltk
-nltk.download('wordnet')# Download wordnet. It would be better to use the Spacy model instead of NLTK. This is only relevant to lemmatization.
+nltk.download('wordnet')# Download wordnet. It would be better to use the Spacy model instead of NLTK.
 lemmatizer = WordNetLemmatizer()# Initialize lemmatizer
 
 #------------------------set up test data for hlda---------------------------------
-pat = re.compile('\w+')# Initialize pattern checker for tokenization. This just ensures that we extract only words from the document
+pat = re.compile('\w+')# Initialize pattern checker for tokenization
 corpus_unseen = tp.utils.Corpus(# Initialize corpus for unseen texts
-    tokenizer=tp.utils.SimpleTokenizer(stemmer=None, lowercase=True),#convert to lowercase and tokenize (split into words)
+    tokenizer=tp.utils.SimpleTokenizer(stemmer=None, lowercase=True),
     stopwords=lambda x: len(x) <= 2 or x in en_stop or x.isnumeric() or not pat.match(x) or not lemmatizer.lemmatize(x)# Initialize tokenizer with lemmatizer and stopwords and pattern checker and length checker
 )
 unseen = other_texts['txt']# Add unseen texts to corpus
-corpus_unseen.process(d.lower() for d in unseen)# Process unseen texts by sending them through the tokenizer and stopwords
+corpus_unseen.process(d.lower() for d in unseen)# Process unseen texts
 #----------------------------------------------------------------------------------
+#------------------------set up test data for gensim lda---------------------------------
+dict_gensim, corpus_gensim = hp.preprocess_text(nlp(other_texts['txt'][0].lower()), 1,False)  # Preprocess the dataframe
+unseen_doc = corpus_gensim[0]
+#----------------------------------------------------------------------------------
+#Inference Ideas
 
-#Inference
+#Idea 1: Run LDA on unseen texts and see if it can predict the topic of the unseen text and then use that to run hierarchical LDA on the unseen text
+vector = model[unseen_doc]  # get topic probability distribution for a document
+topic_number, proba = sorted(vector, key=lambda item: item[1])[-1]# get the most probable topic
+topic_number2, proba2 = sorted(vector, key=lambda item: item[1])[-2]  # thinking of using the second topic only, since first doesnt change--decide later
+
+
+if proba > 0.49:  # increased to 0.49 for selecting first topic so that we see it only if the model is atleast 50% positive, else not worth it
+    tn = topic_number
+else:
+    tn = topic_number2
+if proba < 0.2:
+    print(-1, -1)
+else:
+    print(cluster_names.get(topic_number), proba)
+    print(cluster_names.get(topic_number2), proba2)
+hldamdl = tp.HLDAModel()
+if tn == 0:
+    hldamdl = mdl0
+elif tn == 1:
+    hldamdl = mdl1
+elif tn == 2:
+    hldamdl = mdl2
+elif tn == 3:
+    hldamdl = mdl3
+cps,ll=hldamdl.infer(corpus_unseen)# get the inferred topics and log likelihood for the unseen text using the hierarchical LDA model
+for doc in cps:#loop through the inferred topics
+    for path in doc.path:#loop through each level of the the path provided e.g. [0,8,120], where 0 is always the root topic
+        if path==0:
+            print('Root Topic is {}'.format(cluster_names.get(tn)))#print the root topic as manually selected in the cluster_names dictionary
+            print('Subtopics Level {}:\n{}'.format(path,[i[0] for i in hldamdl.get_topic_words(path)]))#print the subtopics provided by the model for root topic
+        else:
+            print('Subtopics Level {}:\n{}'.format(path,[i[0] for i in hldamdl.get_topic_words(path)]))#print the subtopics for rest of the levels
+    print('Original Unseen Word|Probability pairs:\n{}'.format(doc.get_words(top_n=10)))#print the top 10 words from the unseen text and their probabilities
 
 #Idea 2: Run all the HLDA models and get the log likelihood for each model and then compare them and see which one is the best
 mdls=[mdl0,mdl1,mdl2,mdl3]#list of all the models
 lst=[]
 for i in mdls:#loop through all the models
   cps2, ll2=i.infer(corpus_unseen)#get the inferred topics and log likelihood for the unseen text using the hierarchical LDA model
-  lst.append((cps2,abs(ll2)))#Checkpoint!: append the inferred topics and log likelihood to the list. This is where I am converting the Log-Liklihood to a positive value, leading to the mess-up (or the opposite). I am not sure why this is happening.
+  lst.append((cps2,abs(ll2)))#append the inferred topics and log likelihood to the list
 maxll=max(lst,key=lambda item:item[1])[1]#get the maximum log likelihood
 maxcps=max(lst,key=lambda item:item[1])[0]#get the inferred topics for the unseen text using the hierarchical LDA model
 max_index = lst.index((maxcps,maxll))#get the index of the model with the maximum log likelihood
 md=mdls[max_index]#get the model with the maximum log likelihood using the max_index
 
+for doc in maxcps:
+    for path in doc.path:
+      if path==0:
+        print('Root Topic is {}'.format(cluster_names.get(max_index)))
+        print('Subtopics Level {}:\n{}'.format(path,[i[0] for i in md.get_topic_words(path)]))
+      else:
+        print('Subtopics Level {}:\n{}'.format(path,[i[0] for i in md.get_topic_words(path)]))
+    print('Original Unseen Word|Probability pairs:\n{}'.format(doc.get_words(top_n=10)))
 
 #--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #Formattiing the data for the visualization
 #Tree structure with one random topic selected from level 1
 print('--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------')
 print('Printing the tree structure for hlda model with one random topic selected from level 1')
-print('Root Topic 0:   \t\t{}'.format(cluster_names.get(max_index))) # Root topic from cluster_names
+print('Root Topic 0:   \t\t{}'.format(cluster_names.get(max_index)))
 for doc in maxcps:
     for i,path in enumerate(doc.path):
       if i==1:
-        #offbranch variables are the variables that are not on the path defined by our HLDA model.
-        offbranchtopiclevel1=[j for j in md.children_topics(0) if j!=path]#Checkpoint: Make sure that the level 1 path topic is not duplicated and that we get to pick the first that is unique. We could get more than one topic from the level 1 if needed. Another thing worth trying is to see another way to selecting child topics based on the tokens. Maybe cosine similarity or some other similarity measure.
-        #path is the topic number, md.get_topic_words(path) gets the words for the topic, offbrancktopiclevel1 gives the offbranch topic number for level 1, md.get_topic_words(offbrancktopiclevel1) gives the words for the offbranch topic number for level 1
+        offbranchtopiclevel1=[j for j in md.children_topics(0) if j!=path]
         print('\n{}:{} \t\tAND\t\t {}:{} '.format(path,[i[0] for i in md.get_topic_words(path)][:2],offbranchtopiclevel1[0],[i[0] for i in md.get_topic_words(offbranchtopiclevel1[0])][:2]))
-      elif i==2:#working on level 2. Skip if not needed for visualization i.e. comment out or get rid of it. I would say in most cases the lower levels are closer in relevance to the test document.
+      elif i==2:
         offbranchtopiclevel2=[j for j in md.children_topics(offbranchtopiclevel1[0]) if j!=path]
         print('\n{}:{} \t\tAND\t\t {}:{} '.format(path,[i[0] for i in md.get_topic_words(path)][:2],offbranchtopiclevel2[0],[i[0] for i in md.get_topic_words(offbranchtopiclevel2[0])][:2]))
         # print('\n{}:{}'.format(path,[i[0] for i in md.get_topic_words(path)]))
-    print('\n\n\n\nOriginal Unseen Word|Probability pairs:\n{}'.format(doc.get_words(top_n=10)))# This just prints the top 10 words for the unseen text with the probabilities.
+    print('\n\n\n\nOriginal Unseen Word|Probability pairs:\n{}'.format(doc.get_words(top_n=10)))
 
 
 
